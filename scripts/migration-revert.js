@@ -4,33 +4,168 @@ const { Client } = require('pg');
 
 dotenv.config();
 
-const extraArgs = process.argv.slice(2);
-
-const result = spawnSync(
-  'npm',
-  [
-    'run',
-    'typeorm',
-    '--',
-    'migration:revert',
-    '-d',
-    'src/data-source.ts',
-    ...extraArgs,
-  ],
-  {
-    encoding: 'utf8',
-  },
-);
-
-if (result.status !== 0) {
-  console.error('Migration revert gagal dijalankan. Detail output:');
-  if (result.stdout) {
-    process.stderr.write(result.stdout);
+async function getLatestMigrationTimestamp(client) {
+  const res = await client.query(
+    'SELECT "timestamp" FROM "migrations" ORDER BY "timestamp" DESC LIMIT 1',
+  );
+  if (res.rows.length === 0) {
+    return null;
   }
-  if (result.stderr) {
-    process.stderr.write(result.stderr);
+  return String(res.rows[0].timestamp);
+}
+
+async function migrationExists(client, targetTimestamp) {
+  const res = await client.query(
+    'SELECT "timestamp" FROM "migrations" WHERE "timestamp" = $1',
+    [targetTimestamp],
+  );
+  return res.rows.length > 0;
+}
+
+function runTypeormRevert() {
+  const result = spawnSync(
+    'npm',
+    ['run', 'typeorm', '--', 'migration:revert', '-d', 'src/data-source.ts'],
+    {
+      encoding: 'utf8',
+    },
+  );
+
+  if (result.status !== 0) {
+    console.error('Migration revert gagal dijalankan. Detail output:');
+    if (result.stdout) {
+      process.stderr.write(result.stdout);
+    }
+    if (result.stderr) {
+      process.stderr.write(result.stderr);
+    }
+    process.exit(result.status ?? 1);
   }
-  process.exit(result.status ?? 1);
+}
+
+function runTypeormRunWithTimestamps(timestamps) {
+  if (timestamps.length === 0) {
+    return;
+  }
+
+  const env = {
+    ...process.env,
+    MIGRATION_TIMESTAMPS: timestamps.join(','),
+  };
+
+  const result = spawnSync(
+    'npm',
+    ['run', 'typeorm', '--', 'migration:run', '-d', 'src/data-source.ts'],
+    {
+      encoding: 'utf8',
+      env,
+    },
+  );
+
+  if (result.status !== 0) {
+    console.error(
+      'Migration run gagal dijalankan saat reapply. Detail output:',
+    );
+    if (result.stdout) {
+      process.stderr.write(result.stdout);
+    }
+    if (result.stderr) {
+      process.stderr.write(result.stderr);
+    }
+    process.exit(result.status ?? 1);
+  }
+}
+
+function extractTimestamp(arg) {
+  const matchPrefix = arg.match(/^(\d+)-/);
+  if (matchPrefix && matchPrefix[1]) {
+    return matchPrefix[1];
+  }
+  const matchDigits = arg.match(/^(\d+)$/);
+  if (matchDigits && matchDigits[1]) {
+    return matchDigits[1];
+  }
+  const matchSuffix = arg.match(/(\d+)-[^-]+$/);
+  if (matchSuffix && matchSuffix[1]) {
+    return matchSuffix[1];
+  }
+  return null;
+}
+
+async function revertAllMigrations() {
+  const client = new Client({
+    host: process.env.DB_HOST || 'localhost',
+    port: parseInt(process.env.DB_PORT || '5432', 10),
+    user: process.env.DB_USERNAME || 'postgres',
+    password: process.env.DB_PASSWORD || 'password',
+    database: process.env.DB_NAME || 'nestjs_db',
+  });
+
+  await client.connect();
+
+  while (true) {
+    const latest = await getLatestMigrationTimestamp(client);
+    if (!latest) {
+      break;
+    }
+    runTypeormRevert();
+  }
+
+  await client.end();
+}
+
+async function revertSpecificMigration(targetArg) {
+  const targetTimestamp = extractTimestamp(targetArg);
+  if (!targetTimestamp) {
+    console.error(
+      'Format argumen tidak dikenali. Gunakan timestamp atau nama file yang mengandung timestamp.',
+    );
+    process.exit(1);
+  }
+
+  const client = new Client({
+    host: process.env.DB_HOST || 'localhost',
+    port: parseInt(process.env.DB_PORT || '5432', 10),
+    user: process.env.DB_USERNAME || 'postgres',
+    password: process.env.DB_PASSWORD || 'password',
+    database: process.env.DB_NAME || 'nestjs_db',
+  });
+
+  await client.connect();
+
+  const exists = await migrationExists(client, targetTimestamp);
+
+  if (!exists) {
+    console.log(
+      `Migration dengan timestamp ${targetTimestamp} belum pernah dijalankan.`,
+    );
+    await client.end();
+    return;
+  }
+
+  const revertedTimestamps = [];
+
+  while (true) {
+    const latest = await getLatestMigrationTimestamp(client);
+    if (!latest) {
+      console.error('Tidak menemukan migration target saat proses revert.');
+      await client.end();
+      process.exit(1);
+    }
+    if (latest === targetTimestamp) {
+      break;
+    }
+    runTypeormRevert();
+    revertedTimestamps.push(latest);
+  }
+
+  runTypeormRevert();
+
+  await client.end();
+
+  if (revertedTimestamps.length > 0) {
+    runTypeormRunWithTimestamps(revertedTimestamps);
+  }
 }
 
 async function printTablesInfo() {
@@ -127,14 +262,21 @@ async function printTablesInfo() {
   await client.end();
 }
 
-printTablesInfo()
-  .then(() => {
-    console.log('\nMigration revert berhasil dijalankan.');
-  })
-  .catch((err) => {
-    console.error(
-      'Gagal menampilkan struktur tabel setelah revert:',
-      err.message,
-    );
-    process.exit(1);
-  });
+async function main() {
+  const rawArgs = process.argv.slice(2);
+
+  if (rawArgs.length === 0 || rawArgs[0].startsWith('-')) {
+    await revertAllMigrations();
+  } else {
+    await revertSpecificMigration(rawArgs[0]);
+  }
+
+  await printTablesInfo();
+
+  console.log('\nMigration revert berhasil dijalankan.');
+}
+
+main().catch((err) => {
+  console.error('Terjadi kesalahan saat menjalankan migration:revert:', err);
+  process.exit(1);
+});

@@ -1,15 +1,33 @@
 const { spawnSync } = require('child_process');
 
-const name = process.argv[2];
+const args = process.argv.slice(2);
 
-if (!name) {
+if (args.length === 0) {
   console.error(
-    'Nama migrasi wajib diisi. Contoh: npm run migration:generate CreateUserTable',
+    'Argumen wajib: npm run migration:generate [NamaEntity] NamaMigrasi. Contoh: npm run migration:generate User CreateUserTable',
   );
   process.exit(1);
 }
 
-const migrationPath = `migrations/${name}`;
+let entityName;
+let migrationName;
+let extraArgs = [];
+
+if (args.length === 1) {
+  [migrationName] = args;
+} else {
+  [entityName, migrationName, ...extraArgs] = args;
+}
+
+const migrationPath = `migrations/${migrationName}`;
+
+const env = {
+  ...process.env,
+};
+
+if (entityName) {
+  env.MIGRATION_ENTITIES = entityName;
+}
 
 const result = spawnSync(
   'npm',
@@ -21,9 +39,11 @@ const result = spawnSync(
     migrationPath,
     '-d',
     'src/data-source.ts',
+    ...extraArgs,
   ],
   {
     stdio: 'inherit',
+    env,
   },
 );
 

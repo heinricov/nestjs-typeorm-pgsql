@@ -1,10 +1,53 @@
 const { spawnSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 const dotenv = require('dotenv');
 const { Client } = require('pg');
 
 dotenv.config();
 
-const extraArgs = process.argv.slice(2);
+const rawArgs = process.argv.slice(2);
+
+let cliArgs = [];
+
+const env = {
+  ...process.env,
+};
+
+if (rawArgs.length === 0 || rawArgs[0].startsWith('-')) {
+  cliArgs = rawArgs;
+} else {
+  const first = rawArgs[0];
+  const rest = rawArgs.slice(1);
+  const isTimestamp = /^\d+$/.test(first);
+  if (isTimestamp) {
+    env.MIGRATION_TIMESTAMPS = first;
+    cliArgs = rest;
+  } else {
+    env.MIGRATION_ENTITIES = first;
+    const migrationsDir = path.resolve(process.cwd(), 'migrations');
+    const timestamps = [];
+    if (fs.existsSync(migrationsDir)) {
+      const files = fs.readdirSync(migrationsDir);
+      for (const file of files) {
+        if (!file.endsWith('.ts') && !file.endsWith('.js')) {
+          continue;
+        }
+        if (!file.includes(first)) {
+          continue;
+        }
+        const match = file.match(/(\d+)\.(t|j)s$/);
+        if (match && match[1]) {
+          timestamps.push(match[1]);
+        }
+      }
+    }
+    if (timestamps.length > 0) {
+      env.MIGRATION_TIMESTAMPS = timestamps.join(',');
+    }
+    cliArgs = rest;
+  }
+}
 
 const result = spawnSync(
   'npm',
@@ -15,10 +58,11 @@ const result = spawnSync(
     'migration:run',
     '-d',
     'src/data-source.ts',
-    ...extraArgs,
+    ...cliArgs,
   ],
   {
     encoding: 'utf8',
+    env,
   },
 );
 

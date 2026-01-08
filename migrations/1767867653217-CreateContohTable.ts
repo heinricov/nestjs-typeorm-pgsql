@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class CreateContohTable1767861712143 implements MigrationInterface {
-  name = 'CreateContohTable1767861712143';
+export class CreateContohTable1767867653217 implements MigrationInterface {
+  name = 'CreateContohTable1767867653217';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(

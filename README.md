@@ -28,53 +28,6 @@ git remote add origin https://github.com/heinricov/prj-01.git
 git push -u origin main
 ```
 
-### Created Resource
-
-- create resource user
-
-```bash
-nest generate resource user --no-spec
-```
-
-atau
-
-```bash
-nest g res user --no-spec
-```
-
-- Pilih REST API
-
-```bash
-❯ nest generate resource user --no-spec
-? What transport layer do you use?
-❯ REST API
-  GraphQL (code first)
-  GraphQL (schema first)
-  Microservice (non-HTTP)
-  WebSockets
-```
-
-- Pilih Yes untuk membuat controller dan service
-
-```bash
-? Would you like to generate CRUD entry points? (y/N)
-```
-
-- Struktur folder user yang dihasilkan :
-
-```py
-src
-├── user
-│   ├── dto
-│   │   ├── create-user.dto.ts
-│   │   └── update-user.dto.ts
-│   ├── entities
-│   │   └── user.entity.ts
-│   ├── user.controller.ts
-│   ├── user.module.ts
-│   ├── user.service.ts
-```
-
 ## 2. Setup Database
 
 ### File Environment
@@ -146,6 +99,59 @@ touch src/data-source.ts
 - isi file `data-source.ts` dengan konfigurasi database
 
 ```ts
+import 'reflect-metadata';
+import * as dotenv from 'dotenv';
+import * as fs from 'fs';
+import * as path from 'path';
+import { DataSource } from 'typeorm';
+import { User } from './user/entities/user.entity';
+import { Contoh } from './contoh/entities/contoh.entity';
+
+dotenv.config();
+
+const baseEntities = [User, Contoh];
+
+const migrationEntitiesEnv = process.env.MIGRATION_ENTITIES;
+
+const selectedEntities =
+  migrationEntitiesEnv && migrationEntitiesEnv.length > 0
+    ? baseEntities.filter((entity) =>
+        migrationEntitiesEnv.split(',').includes(entity.name),
+      )
+    : baseEntities;
+
+function resolveMigrations(): string[] {
+  const timestampsEnv = process.env.MIGRATION_TIMESTAMPS;
+  if (!timestampsEnv || timestampsEnv.length === 0) {
+    return ['migrations/*{.ts,.js}'];
+  }
+  const timestamps = new Set(timestampsEnv.split(','));
+  const migrationsDir = path.resolve(__dirname, '..', 'migrations');
+  const files = fs.existsSync(migrationsDir)
+    ? fs.readdirSync(migrationsDir)
+    : [];
+  const selected: string[] = [];
+  for (const file of files) {
+    if (!file.endsWith('.ts') && !file.endsWith('.js')) {
+      continue;
+    }
+    let match = false;
+    for (const ts of timestamps) {
+      if (file.includes(ts)) {
+        match = true;
+        break;
+      }
+    }
+    if (!match) {
+      continue;
+    }
+    selected.push(path.join('migrations', file));
+  }
+  return selected;
+}
+
+const migrations = resolveMigrations();
+
 export const AppDataSource = new DataSource({
   type: 'postgres',
   host: process.env.DB_HOST,
@@ -153,48 +159,16 @@ export const AppDataSource = new DataSource({
   username: process.env.DB_USERNAME,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
-  entities: ['src/**/entities/*.entity{.ts,.js}'],
-  migrations: ['migrations/*{.ts,.js}'],
+  entities: selectedEntities,
+  migrations,
   synchronize: false,
   logging: false,
 });
 ```
 
-### Entity
+### Migration Scripts
 
-- buat folder `entities` di folder `src`
-
-```bash
-mkdir -p src/entities
-touch src/entities/user.entity.ts
-```
-
-atau
-
-- isi file `user.entity.ts` dengan konfigurasi entity user
-
-```ts
-import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
-
-@Entity()
-export class User {
-  @PrimaryGeneratedColumn()
-  id: number;
-
-  @Column()
-  name: string;
-
-  @Column()
-  email: string;
-
-  @Column()
-  password: string;
-}
-```
-
-### Migration
-
-- buat folder `migrations` di folder `src`
+- buat folder `migrations` di folder `root`
 
 ```bash
 mkdir -p migrations
@@ -213,21 +187,49 @@ touch scripts/migration-revert.js
 touch scripts/migration-show.js
 ```
 
+- setup `eslint.config.mjs` agar tidak menganggap file `scripts/**/*` sebagai file yang di lint
+
+```js
+export default tseslint.config({
+  ignores: ['eslint.config.mjs', 'scripts/**/*'],
+}
+...
+);
+```
+
 - isi file `migration-generate.js` dengan konfigurasi migrasi generate
 
 ```js
 const { spawnSync } = require('child_process');
 
-const name = process.argv[2];
+const args = process.argv.slice(2);
 
-if (!name) {
+if (args.length === 0) {
   console.error(
-    'Nama migrasi wajib diisi. Contoh: npm run migration:generate CreateUserTable',
+    'Argumen wajib: npm run migration:generate [NamaEntity] NamaMigrasi. Contoh: npm run migration:generate User CreateUserTable',
   );
   process.exit(1);
 }
 
-const migrationPath = `migrations/${name}`;
+let entityName;
+let migrationName;
+let extraArgs = [];
+
+if (args.length === 1) {
+  [migrationName] = args;
+} else {
+  [entityName, migrationName, ...extraArgs] = args;
+}
+
+const migrationPath = `migrations/${migrationName}`;
+
+const env = {
+  ...process.env,
+};
+
+if (entityName) {
+  env.MIGRATION_ENTITIES = entityName;
+}
 
 const result = spawnSync(
   'npm',
@@ -239,9 +241,11 @@ const result = spawnSync(
     migrationPath,
     '-d',
     'src/data-source.ts',
+    ...extraArgs,
   ],
   {
     stdio: 'inherit',
+    env,
   },
 );
 
@@ -252,28 +256,55 @@ process.exit(result.status ?? 0);
 
 ```js
 const { spawnSync } = require('child_process');
-
-const result = spawnSync(
-  'npm',
-  ['run', 'typeorm', '--', 'migration:run', '-d', 'src/data-source.ts'],
-  {
-    stdio: 'inherit',
-  },
-);
-
-process.exit(result.status ?? 0);
-```
-
-- isi file `migration-run.js` dengan konfigurasi migrasi run
-
-```js
-const { spawnSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 const dotenv = require('dotenv');
 const { Client } = require('pg');
 
 dotenv.config();
 
-const extraArgs = process.argv.slice(2);
+const rawArgs = process.argv.slice(2);
+
+let cliArgs = [];
+
+const env = {
+  ...process.env,
+};
+
+if (rawArgs.length === 0 || rawArgs[0].startsWith('-')) {
+  cliArgs = rawArgs;
+} else {
+  const first = rawArgs[0];
+  const rest = rawArgs.slice(1);
+  const isTimestamp = /^\d+$/.test(first);
+  if (isTimestamp) {
+    env.MIGRATION_TIMESTAMPS = first;
+    cliArgs = rest;
+  } else {
+    env.MIGRATION_ENTITIES = first;
+    const migrationsDir = path.resolve(process.cwd(), 'migrations');
+    const timestamps = [];
+    if (fs.existsSync(migrationsDir)) {
+      const files = fs.readdirSync(migrationsDir);
+      for (const file of files) {
+        if (!file.endsWith('.ts') && !file.endsWith('.js')) {
+          continue;
+        }
+        if (!file.includes(first)) {
+          continue;
+        }
+        const match = file.match(/(\d+)\.(t|j)s$/);
+        if (match && match[1]) {
+          timestamps.push(match[1]);
+        }
+      }
+    }
+    if (timestamps.length > 0) {
+      env.MIGRATION_TIMESTAMPS = timestamps.join(',');
+    }
+    cliArgs = rest;
+  }
+}
 
 const result = spawnSync(
   'npm',
@@ -284,10 +315,11 @@ const result = spawnSync(
     'migration:run',
     '-d',
     'src/data-source.ts',
-    ...extraArgs,
+    ...cliArgs,
   ],
   {
     encoding: 'utf8',
+    env,
   },
 );
 
@@ -413,33 +445,168 @@ const { Client } = require('pg');
 
 dotenv.config();
 
-const extraArgs = process.argv.slice(2);
-
-const result = spawnSync(
-  'npm',
-  [
-    'run',
-    'typeorm',
-    '--',
-    'migration:revert',
-    '-d',
-    'src/data-source.ts',
-    ...extraArgs,
-  ],
-  {
-    encoding: 'utf8',
-  },
-);
-
-if (result.status !== 0) {
-  console.error('Migration revert gagal dijalankan. Detail output:');
-  if (result.stdout) {
-    process.stderr.write(result.stdout);
+async function getLatestMigrationTimestamp(client) {
+  const res = await client.query(
+    'SELECT "timestamp" FROM "migrations" ORDER BY "timestamp" DESC LIMIT 1',
+  );
+  if (res.rows.length === 0) {
+    return null;
   }
-  if (result.stderr) {
-    process.stderr.write(result.stderr);
+  return String(res.rows[0].timestamp);
+}
+
+async function migrationExists(client, targetTimestamp) {
+  const res = await client.query(
+    'SELECT "timestamp" FROM "migrations" WHERE "timestamp" = $1',
+    [targetTimestamp],
+  );
+  return res.rows.length > 0;
+}
+
+function runTypeormRevert() {
+  const result = spawnSync(
+    'npm',
+    ['run', 'typeorm', '--', 'migration:revert', '-d', 'src/data-source.ts'],
+    {
+      encoding: 'utf8',
+    },
+  );
+
+  if (result.status !== 0) {
+    console.error('Migration revert gagal dijalankan. Detail output:');
+    if (result.stdout) {
+      process.stderr.write(result.stdout);
+    }
+    if (result.stderr) {
+      process.stderr.write(result.stderr);
+    }
+    process.exit(result.status ?? 1);
   }
-  process.exit(result.status ?? 1);
+}
+
+function runTypeormRunWithTimestamps(timestamps) {
+  if (timestamps.length === 0) {
+    return;
+  }
+
+  const env = {
+    ...process.env,
+    MIGRATION_TIMESTAMPS: timestamps.join(','),
+  };
+
+  const result = spawnSync(
+    'npm',
+    ['run', 'typeorm', '--', 'migration:run', '-d', 'src/data-source.ts'],
+    {
+      encoding: 'utf8',
+      env,
+    },
+  );
+
+  if (result.status !== 0) {
+    console.error(
+      'Migration run gagal dijalankan saat reapply. Detail output:',
+    );
+    if (result.stdout) {
+      process.stderr.write(result.stdout);
+    }
+    if (result.stderr) {
+      process.stderr.write(result.stderr);
+    }
+    process.exit(result.status ?? 1);
+  }
+}
+
+function extractTimestamp(arg) {
+  const matchPrefix = arg.match(/^(\d+)-/);
+  if (matchPrefix && matchPrefix[1]) {
+    return matchPrefix[1];
+  }
+  const matchDigits = arg.match(/^(\d+)$/);
+  if (matchDigits && matchDigits[1]) {
+    return matchDigits[1];
+  }
+  const matchSuffix = arg.match(/(\d+)-[^-]+$/);
+  if (matchSuffix && matchSuffix[1]) {
+    return matchSuffix[1];
+  }
+  return null;
+}
+
+async function revertAllMigrations() {
+  const client = new Client({
+    host: process.env.DB_HOST || 'localhost',
+    port: parseInt(process.env.DB_PORT || '5432', 10),
+    user: process.env.DB_USERNAME || 'postgres',
+    password: process.env.DB_PASSWORD || 'password',
+    database: process.env.DB_NAME || 'nestjs_db',
+  });
+
+  await client.connect();
+
+  while (true) {
+    const latest = await getLatestMigrationTimestamp(client);
+    if (!latest) {
+      break;
+    }
+    runTypeormRevert();
+  }
+
+  await client.end();
+}
+
+async function revertSpecificMigration(targetArg) {
+  const targetTimestamp = extractTimestamp(targetArg);
+  if (!targetTimestamp) {
+    console.error(
+      'Format argumen tidak dikenali. Gunakan timestamp atau nama file yang mengandung timestamp.',
+    );
+    process.exit(1);
+  }
+
+  const client = new Client({
+    host: process.env.DB_HOST || 'localhost',
+    port: parseInt(process.env.DB_PORT || '5432', 10),
+    user: process.env.DB_USERNAME || 'postgres',
+    password: process.env.DB_PASSWORD || 'password',
+    database: process.env.DB_NAME || 'nestjs_db',
+  });
+
+  await client.connect();
+
+  const exists = await migrationExists(client, targetTimestamp);
+
+  if (!exists) {
+    console.log(
+      `Migration dengan timestamp ${targetTimestamp} belum pernah dijalankan.`,
+    );
+    await client.end();
+    return;
+  }
+
+  const revertedTimestamps = [];
+
+  while (true) {
+    const latest = await getLatestMigrationTimestamp(client);
+    if (!latest) {
+      console.error('Tidak menemukan migration target saat proses revert.');
+      await client.end();
+      process.exit(1);
+    }
+    if (latest === targetTimestamp) {
+      break;
+    }
+    runTypeormRevert();
+    revertedTimestamps.push(latest);
+  }
+
+  runTypeormRevert();
+
+  await client.end();
+
+  if (revertedTimestamps.length > 0) {
+    runTypeormRunWithTimestamps(revertedTimestamps);
+  }
 }
 
 async function printTablesInfo() {
@@ -536,17 +703,24 @@ async function printTablesInfo() {
   await client.end();
 }
 
-printTablesInfo()
-  .then(() => {
-    console.log('\nMigration revert berhasil dijalankan.');
-  })
-  .catch((err) => {
-    console.error(
-      'Gagal menampilkan struktur tabel setelah revert:',
-      err.message,
-    );
-    process.exit(1);
-  });
+async function main() {
+  const rawArgs = process.argv.slice(2);
+
+  if (rawArgs.length === 0 || rawArgs[0].startsWith('-')) {
+    await revertAllMigrations();
+  } else {
+    await revertSpecificMigration(rawArgs[0]);
+  }
+
+  await printTablesInfo();
+
+  console.log('\nMigration revert berhasil dijalankan.');
+}
+
+main().catch((err) => {
+  console.error('Terjadi kesalahan saat menjalankan migration:revert:', err);
+  process.exit(1);
+});
 ```
 
 - isi file `migration-show.js` dengan konfigurasi migrasi show
@@ -575,75 +749,143 @@ const result = spawnSync(
 process.exit(result.status ?? 0);
 ```
 
-- perbaharui `eslint.config.mjs`
+- script `package.json`
 
-```js
-export default tseslint.config({
-  ignores: ['eslint.config.mjs', 'scripts/**/*'],
+```json
+{
+  "scripts": {
+    "typeorm": "typeorm-ts-node-commonjs",
+    "migration:generate": "node scripts/migration-generate.js",
+    "migration:run": "node scripts/migration-run.js",
+    "migration:revert": "node scripts/migration-revert.js",
+    "migration:show": "node scripts/migration-show.js"
+  }
 }
-...
-);
 ```
 
-- perintah migration generate
+## 4. Connection Entity
+
+### Buat Manual Entity
+
+- buat folder `entities` di folder `src`
 
 ```bash
-npm run migration:generate CreateContohTable
+mkdir -p src/entities
+touch src/entities/user.entity.ts
 ```
 
-- perintah migration run
+atau
+
+### Created Resource
+
+- create resource user
 
 ```bash
-npm run migration:run
+nest generate resource user --no-spec
 ```
 
-- perintah migration revert
+atau
 
 ```bash
-npm run migration:revert
+nest g res user --no-spec
 ```
 
-- perintah migration show
+- Pilih REST API
 
 ```bash
-npm run migration:show
+❯ nest generate resource user --no-spec
+? What transport layer do you use?
+❯ REST API
+  GraphQL (code first)
+  GraphQL (schema first)
+  Microservice (non-HTTP)
+  WebSockets
 ```
 
-## 4. Uji Coba
-
-### buat table baru
-
-- Buat Resource Contoh
+- Pilih Yes untuk membuat controller dan service
 
 ```bash
-nest generate resource contoh --no-spec
+? Would you like to generate CRUD entry points? (y/N)
 ```
 
-- isi file `contoh.entity.ts` dengan konfigurasi entity contoh
+- Struktur folder user yang dihasilkan :
+
+```py
+src
+├── user
+│   ├── dto
+│   │   ├── create-user.dto.ts
+│   │   └── update-user.dto.ts
+│   ├── entities
+│   │   └── user.entity.ts
+│   ├── user.controller.ts
+│   ├── user.module.ts
+│   ├── user.service.ts
+```
+
+- isi file `user.entity.ts` dengan konfigurasi entity user
 
 ```ts
 import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
 
 @Entity()
-export class Contoh {
+export class User {
   @PrimaryGeneratedColumn()
   id: number;
 
   @Column()
-  nama: string;
+  name: string;
+
+  @Column()
+  email: string;
+
+  @Column()
+  password: string;
 }
 ```
 
-- perintah migration generate
+### migration
+
+- perintah migration generate (semua entity)
 
 ```bash
-npm run migration:generate CreateContohTable
+npm run migration:generate CreateUserTable
 ```
 
-- perintah migration run
+- perintah migration generate (hanya entity tertentu)
+
+```bash
+npm run migration:generate User CreateUserTable
+```
+
+- perintah migration run (jalankan semua migration pending)
 
 ```bash
 npm run migration:run
+```
+
+- perintah migration run (jalankan migration tertentu berdasarkan timestamp)
+
+```bash
+npm run migration:run 1767867653217
+```
+
+- perintah migration run (jalankan migration terkait class entity tertentu)
+
+```bash
+npm run migration:run User
+```
+
+- perintah migration revert (batalkan semua migration yang sudah dijalankan)
+
+```bash
+npm run migration:revert
+```
+
+- perintah migration revert (batalkan 1 migration tertentu berdasarkan nama file / timestamp)
+
+```bash
+npm run migration:revert 1767867653217-CreateContohTable
 ```
 
 - perintah migration show
@@ -652,8 +894,4 @@ npm run migration:run
 npm run migration:show
 ```
 
-- perintah migration revert
-
-```bash
-npm run migration:revert
-```
+## 5. Seed Data
