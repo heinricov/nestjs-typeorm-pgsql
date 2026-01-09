@@ -22,7 +22,9 @@
     "migration:generate": "node scripts/migration-generate.js",
     "migration:run": "node scripts/migration-run.js",
     "migration:revert": "node scripts/migration-revert.js",
-    "migration:show": "node scripts/migration-show.js"
+    "migration:show": "node scripts/migration-show.js",
+    "create:entity": "ts-node scripts/created-entity.ts",
+    "remove:entity": "ts-node scripts/remove-entity.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

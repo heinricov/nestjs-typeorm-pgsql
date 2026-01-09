@@ -5,10 +5,12 @@ import * as path from 'path';
 import { DataSource } from 'typeorm';
 import { User } from '../src/user/entities/user.entity';
 import { Contoh } from '../src/contoh/entities/contoh.entity';
+import { TestEntity } from '../src/entities/testentity.entity';
+import { Coba } from '../src/entities/coba.entity';
 
 dotenv.config();
 
-const baseEntities = [User, Contoh];
+const baseEntities = [User, Contoh, TestEntity, Coba];
 
 const migrationEntitiesEnv = process.env.MIGRATION_ENTITIES;
 
