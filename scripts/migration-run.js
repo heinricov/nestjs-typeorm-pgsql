@@ -25,7 +25,7 @@ if (rawArgs.length === 0 || rawArgs[0].startsWith('-')) {
     cliArgs = rest;
   } else {
     env.MIGRATION_ENTITIES = first;
-    const migrationsDir = path.resolve(process.cwd(), 'migrations');
+    const migrationsDir = path.resolve(process.cwd(), 'database', 'migrations');
     const timestamps = [];
     if (fs.existsSync(migrationsDir)) {
       const files = fs.readdirSync(migrationsDir);
@@ -57,7 +57,7 @@ const result = spawnSync(
     '--',
     'migration:run',
     '-d',
-    'src/data-source.ts',
+    'database/data-source.ts',
     ...cliArgs,
   ],
   {

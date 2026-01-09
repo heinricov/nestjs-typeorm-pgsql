@@ -93,24 +93,16 @@ npm install -D ts-node
 - buat file `data-source.ts` di folder `src`
 
 ```bash
-touch src/data-source.ts
+mkdir -p database
+touch database/data-source.ts
+mkdir -p database/migrations
 ```
 
-- isi file `data-source.ts` dengan konfigurasi database connection yang bisa di lihat di [data-source.ts](src/data-source.ts)
+- isi file `data-source.ts` dengan konfigurasi database connection yang bisa di lihat di [data-source.ts](database/data-source.ts)
 
 ### Migration Scripts
 
-- buat folder `migrations` di folder `root`
-
-```bash
-mkdir -p migrations
-```
-
 - buat file - file script migrasi
-
-```bash
-mkdir scripts
-```
 
 ```bash
 touch scripts/migration-generate.js

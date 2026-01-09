@@ -19,7 +19,7 @@ if (args.length === 1) {
   [entityName, migrationName, ...extraArgs] = args;
 }
 
-const migrationPath = `migrations/${migrationName}`;
+const migrationPath = `database/migrations/${migrationName}`;
 
 const env = {
   ...process.env,
@@ -38,7 +38,7 @@ const result = spawnSync(
     'migration:generate',
     migrationPath,
     '-d',
-    'src/data-source.ts',
+    'database/data-source.ts',
     ...extraArgs,
   ],
   {

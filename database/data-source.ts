@@ -3,8 +3,8 @@ import * as dotenv from 'dotenv';
 import * as fs from 'fs';
 import * as path from 'path';
 import { DataSource } from 'typeorm';
-import { User } from './user/entities/user.entity';
-import { Contoh } from './contoh/entities/contoh.entity';
+import { User } from '../src/user/entities/user.entity';
+import { Contoh } from '../src/contoh/entities/contoh.entity';
 
 dotenv.config();
 
@@ -21,11 +21,12 @@ const selectedEntities =
 
 function resolveMigrations(): string[] {
   const timestampsEnv = process.env.MIGRATION_TIMESTAMPS;
+  const relativeDir = path.join('database', 'migrations');
   if (!timestampsEnv || timestampsEnv.length === 0) {
-    return ['migrations/*{.ts,.js}'];
+    return [`${relativeDir}/*{.ts,.js}`];
   }
   const timestamps = new Set(timestampsEnv.split(','));
-  const migrationsDir = path.resolve(__dirname, '..', 'migrations');
+  const migrationsDir = path.resolve(__dirname, 'migrations');
   const files = fs.existsSync(migrationsDir)
     ? fs.readdirSync(migrationsDir)
     : [];
@@ -44,7 +45,7 @@ function resolveMigrations(): string[] {
     if (!match) {
       continue;
     }
-    selected.push(path.join('migrations', file));
+    selected.push(path.join(relativeDir, file));
   }
   return selected;
 }

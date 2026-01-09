@@ -25,7 +25,14 @@ async function migrationExists(client, targetTimestamp) {
 function runTypeormRevert() {
   const result = spawnSync(
     'npm',
-    ['run', 'typeorm', '--', 'migration:revert', '-d', 'src/data-source.ts'],
+    [
+      'run',
+      'typeorm',
+      '--',
+      'migration:revert',
+      '-d',
+      'database/data-source.ts',
+    ],
     {
       encoding: 'utf8',
     },
@@ -55,7 +62,7 @@ function runTypeormRunWithTimestamps(timestamps) {
 
   const result = spawnSync(
     'npm',
-    ['run', 'typeorm', '--', 'migration:run', '-d', 'src/data-source.ts'],
+    ['run', 'typeorm', '--', 'migration:run', '-d', 'database/data-source.ts'],
     {
       encoding: 'utf8',
       env,

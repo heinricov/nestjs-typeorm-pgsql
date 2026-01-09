@@ -10,7 +10,7 @@ const result = spawnSync(
     '--',
     'migration:show',
     '-d',
-    'src/data-source.ts',
+    'database/data-source.ts',
     ...extraArgs,
   ],
   {
